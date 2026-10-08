@@ -24,7 +24,6 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.impute import SimpleImputer
-from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold, cross_val_predict, cross_val_score, cross_validate
 from sklearn.pipeline import Pipeline
@@ -32,6 +31,7 @@ from sklearn.preprocessing import StandardScaler
 
 from . import evaluate as ev
 from . import features as ft
+from .calibration import CALIBRATORS, IdentityCalibrator, IsotonicCalibrator, PlattScaler  # noqa: F401
 
 ROOT = Path(__file__).resolve().parents[1]
 RANDOM_STATE = 42
@@ -151,44 +151,6 @@ def tune_lgbm(X, y, build=make_lgbm, n_trials: int = 40, n_splits: int = 5, seed
 # --------------------------------------------------------------------------- #
 # Calibration (fit on out-of-fold predictions)
 # --------------------------------------------------------------------------- #
-def _logit(p):
-    p = np.clip(np.asarray(p, float), 1e-6, 1 - 1e-6)
-    return np.log(p / (1 - p))
-
-
-class IdentityCalibrator:
-    def fit(self, p, y):
-        return self
-
-    def predict(self, p):
-        return np.asarray(p, float)
-
-
-class PlattScaler:
-    """Sigmoid calibration: logistic regression on the logit of the raw score."""
-
-    def fit(self, p, y):
-        self.lr_ = LogisticRegression(C=1e6, max_iter=1000).fit(_logit(p).reshape(-1, 1), y)
-        return self
-
-    def predict(self, p):
-        return self.lr_.predict_proba(_logit(p).reshape(-1, 1))[:, 1]
-
-
-class IsotonicCalibrator:
-    """Monotone step-function calibration. Flexible, but needs a few thousand rows."""
-
-    def fit(self, p, y):
-        self.iso_ = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0).fit(p, y)
-        return self
-
-    def predict(self, p):
-        return self.iso_.predict(np.asarray(p, float))
-
-
-CALIBRATORS = {"none": IdentityCalibrator, "platt": PlattScaler, "isotonic": IsotonicCalibrator}
-
-
 def oof_proba(estimator, X, y, n_splits: int = 5, seed: int = RANDOM_STATE) -> np.ndarray:
     """Out-of-fold P(default) for every training row."""
     return cross_val_predict(clone(estimator), X, y, cv=skf(n_splits, seed), method="predict_proba")[:, 1]
@@ -204,7 +166,11 @@ def cv_calibrate(p, y, method: str, n_splits: int = 5, seed: int = RANDOM_STATE)
 
 
 def compare_calibrators(p_oof, y, min_gain: float = 2e-4) -> tuple[pd.DataFrame, str]:
-    """Raw vs Platt vs isotonic. Only calibrate if Brier improves by at least `min_gain`."""
+    """Raw vs Platt vs isotonic, scored with cross-fitting.
+
+    Returns (table, chosen method). Calibration is only applied if it improves the
+    Brier score by at least `min_gain`; otherwise 'none' (raw probabilities) is kept.
+    """
     rows = [ev.score_summary(y, cv_calibrate(p_oof, y, m), name=m) for m in CALIBRATORS]
     table = pd.DataFrame(rows).set_index("model")
     best = table["brier"].idxmin()
@@ -304,15 +270,12 @@ def run_pipeline(data_path, n_trials: int = 40, c_fn: float = 5.0, c_fp: float =
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
     return summary
 
-if __name__ == "__main__":
-    # Import under the package name so pickled classes are stored as
-    # `src.train.PlattScaler`, not `__main__.PlattScaler`.
-    from src.train import run_pipeline as _run
 
+if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", required=True, help="Path to the UCI .xls/.xlsx/.csv")
     ap.add_argument("--n-trials", type=int, default=40)
     ap.add_argument("--c-fn", type=float, default=5.0, help="Cost of a missed defaulter")
     ap.add_argument("--c-fp", type=float, default=1.0, help="Cost of a false alarm")
     a = ap.parse_args()
-    print(json.dumps(_run(a.data, a.n_trials, a.c_fn, a.c_fp), indent=2, default=float))
+    print(json.dumps(run_pipeline(a.data, a.n_trials, a.c_fn, a.c_fp), indent=2, default=float))
