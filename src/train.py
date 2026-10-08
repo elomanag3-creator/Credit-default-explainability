@@ -203,11 +203,14 @@ def cv_calibrate(p, y, method: str, n_splits: int = 5, seed: int = RANDOM_STATE)
     return out
 
 
-def compare_calibrators(p_oof, y) -> tuple[pd.DataFrame, str]:
-    """Brier / log-loss / ECE for raw vs Platt vs isotonic. Returns (table, best method by Brier)."""
+def compare_calibrators(p_oof, y, min_gain: float = 2e-4) -> tuple[pd.DataFrame, str]:
+    """Raw vs Platt vs isotonic. Only calibrate if Brier improves by at least `min_gain`."""
     rows = [ev.score_summary(y, cv_calibrate(p_oof, y, m), name=m) for m in CALIBRATORS]
     table = pd.DataFrame(rows).set_index("model")
-    return table, table["brier"].idxmin()
+    best = table["brier"].idxmin()
+    if best != "none" and table.loc["none", "brier"] - table.loc[best, "brier"] < min_gain:
+        best = "none"
+    return table, best
 
 
 # --------------------------------------------------------------------------- #
