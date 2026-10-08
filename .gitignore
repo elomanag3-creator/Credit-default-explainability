@@ -1,0 +1,9 @@
+data/*
+!data/README.md
+artifacts/*
+!artifacts/.gitkeep
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+*.pyc
+.pytest_cache/
