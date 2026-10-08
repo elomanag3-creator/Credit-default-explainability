@@ -1,0 +1,4 @@
+model,roc_auc,pr_auc,brier,log_loss,ece,base_rate
+LogReg baseline,0.754,0.521,0.1406,0.4461,0.0131,0.2213
+LightGBM raw,0.7817,0.5691,0.1343,0.4278,0.0112,0.2213
+LightGBM none-calibrated,0.7817,0.5691,0.1343,0.4278,0.0112,0.2213
