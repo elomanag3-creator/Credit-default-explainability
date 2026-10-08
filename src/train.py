@@ -304,12 +304,15 @@ def run_pipeline(data_path, n_trials: int = 40, c_fn: float = 5.0, c_fp: float =
     (out_dir / "summary.json").write_text(json.dumps(summary, indent=2, default=float))
     return summary
 
-
 if __name__ == "__main__":
+    # Import under the package name so pickled classes are stored as
+    # `src.train.PlattScaler`, not `__main__.PlattScaler`.
+    from src.train import run_pipeline as _run
+
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", required=True, help="Path to the UCI .xls/.xlsx/.csv")
     ap.add_argument("--n-trials", type=int, default=40)
     ap.add_argument("--c-fn", type=float, default=5.0, help="Cost of a missed defaulter")
     ap.add_argument("--c-fp", type=float, default=1.0, help="Cost of a false alarm")
     a = ap.parse_args()
-    print(json.dumps(run_pipeline(a.data, a.n_trials, a.c_fn, a.c_fp), indent=2, default=float))
+    print(json.dumps(_run(a.data, a.n_trials, a.c_fn, a.c_fp), indent=2, default=float))
